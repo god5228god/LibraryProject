@@ -8,10 +8,9 @@ INSERT INTO PUBLISHERS(PUB_ID, PUB_NAME) VALUES (SEQ_PUBlISHER.NEXTVAL, '문학동�
 INSERT INTO PUBLISHERS(PUB_ID, PUB_NAME) VALUES (SEQ_PUBlISHER.NEXTVAL, '다산책방');
 INSERT INTO PUBLISHERS(PUB_ID, PUB_NAME) VALUES (SEQ_PUBlISHER.NEXTVAL, '디플롯');
 
-
-
 -- 출판사 수정 PUB_NAME
 UPDATE PUBLISHERS SET PUB_NAME = '을유문화사' WHERE PUB_ID = 5;
+
 
 SELECT *
 FROM PUBLISHERS;
@@ -84,7 +83,7 @@ UPDATE LOAN_EVENTS SET EVENT_NAME = '봄 맞이 대출 두배' , START_DATE = TO_DATE('
 -- PW, NAME, PHONE, EMAIL (사용자 직접 수정)
 -- BIRTH, GENDER, STATUS_ID, ROLE_ID, PENALTY_EDATE (관리자 수정)
 UPDATE USERS SET PW = '', PHONE = '', EMAIL = '' WHERE USER_ID = '';
-UPDATE USERS SET PW = '', PHONE = '', EMAIL = '', STATUS_ID = , ROLE_ID = , PENALTY_EDATE = TO_DATE('','YYYY-MM-DD') WHERE USER_ID = '';
+UPDATE USERS SET PW = '', PHONE = '', EMAIL = '', STATUS_ID = , ROLE_ID = , PENALTY_EDATE = ? WHERE USER_ID = '';
 
 
 
@@ -100,6 +99,8 @@ INSERT INTO CONTRIBUTOR(CONTRIBUTOR_ID, ISBN, AUTHOR_ID, AUTHOR_ORDER) VALUES (S
 
 SELECT *
 FROM CONTRIBUTOR;
+
+
 /*
 1	9788937460586	1	
 2	9788936439743	2	
@@ -117,6 +118,130 @@ UPDATE BOOK_COPY SET BOOK_STATUS_ID = 3 WHERE BOOK_ID = ?;
 -- 도서작가 수정 AUTHOR_ID, AUTHOR_ORDER (수정 대신 삭제후 생성이 나은가?)
 -- 도서작가 삭제 (수정 대신 그 ISBN의 모든 데이터를 삭제한 후 다시 생성하도록 유도)
 DELETE FROM CONTRIBUTOR WHERE ISBN = ? ;
+
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- ○ 출판사 생성 한줄
+INSERT INTO PUBLISHERS(PUB_ID, PUB_NAME) VALUES (SEQ_PUBlISHER.NEXTVAL, ?)
+;
+-- ○ 출판사 수정 한줄
+UPDATE PUBLISHERS SET PUB_NAME = ? WHERE PUB_ID = ?
+;
+
+-- ○ 작가 생성 한줄
+INSERT INTO AUTHORS(AUTHOR_ID, AUTHOR_NAME) VALUES (SEQ_AUTHOR.NEXTVAL, ?)
+;
+
+-- ○ 작가 수정 한줄
+UPDATE AUTHORS SET AUTHOR_NAME = ? WHERE AUTHOR_ID = ?
+;
+
+-- ○ 도서정보 생성 한줄
+INSERT INTO BOOK_INFO(ISBN, TITLE, PUB_ID, CAT_ID) VALUES (?, ?, ?, ?)
+;
+
+-- ○ 도서정보 수정 한줄
+UPDATE BOOK_INFO SET TITLE = ?, PUB_ID = ?, CAT_ID = ? WHERE ISBN = ?
+;
+
+-- ○ 이벤트 도서 생성 한줄
+INSERT INTO LOAN_EVENTS(EVENT_ID, EVENT_NAME, START_DATE, END_DATE, MAX_LOAN_LIMIT) VALUES (SEQ_LOAN_EVENT.NEXTVAL, ?, TO_DATE(?,'YYYY-MM-DD'), TO_DATE(?, 'YYYY-MM-DD'), ?)
+;
+
+-- ○ 이벤트 도서 수정 한줄
+UPDATE LOAN_EVENTS SET EVENT_NAME = ? , START_DATE = TO_DATE(?,'YYYY-MM-DD'), END_DATE = TO_DATE(?,'YYYY-MM-DD'), MAX_LOAN_LIMIT = ? WHERE EVENT_ID = ?
+;
+
+-- ○ 사용자 수정 일반 회원 버전 한줄
+UPDATE USERS SET PW = ?, PHONE = ?, EMAIL = ? WHERE USER_ID = ?
+;
+
+-- ○ 사용자 수정 관리자 버전 한줄
+UPDATE USERS SET PW = ?, PHONE = ?, EMAIL = ?, STATUS_ID = ?, ROLE_ID = ?, PENALTY_EDATE = ? WHERE USER_ID = ?
+;
+
+-- ○ 도서 작가 생성 한줄
+INSERT INTO CONTRIBUTOR(CONTRIBUTOR_ID, ISBN, AUTHOR_ID, AUTHOR_ORDER) VALUES (SEQ_CONTRIBUTOR.NEXTVAL, ?, ?, ?)
+;
+
+-- ○ 도서 작가 삭제 한줄 (트랜잭션 처리 삭제와 다시 등록을 하나의 묶음으로 처리하기 그 후 커밋)
+DELETE FROM CONTRIBUTOR WHERE ISBN = ?
+;
+
+-- ○ 소장 도서 수정 한줄
+UPDATE BOOK_COPY SET BOOK_STATUS_ID = ? WHERE BOOK_ID = ?
+;
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+SELECT *
+FROM BOOK_COPY;
+
+
+-- 도서 정보 뷰(도서명, isbn, 작가, 출판사, 카테고리, 책상태)
+CREATE VIEW VIEW_BOOK_INFO
+AS
+SELECT  C.BOOK_ID, I.TITLE
+, LISTAGG(A.AUTHOR_NAME, ',') WITHIN GROUP(ORDER BY A.AUTHOR_NAME) AS AUTHOR
+, P.PUB_NAME, CT.CAT_NAME, I.ISBN, BS.BOOK_STATUS_NAME
+FROM BOOK_INFO I JOIN BOOK_COPY C
+    ON I.ISBN = C.ISBN
+JOIN PUBLISHERS P
+    ON I.PUB_ID = P.PUB_ID
+JOIN CATEGORIES CT
+    ON I.CAT_ID = CT.CAT_ID
+JOIN BOOK_STATUS BS
+    ON C.BOOK_STATUS_ID = BS.BOOK_STATUS_ID
+JOIN CONTRIBUTOR CR
+    ON CR.ISBN = I.ISBN
+JOIN AUTHORS A
+    ON CR.AUTHOR_ID = A.AUTHOR_ID
+GROUP BY C.BOOK_ID, I.TITLE, P.PUB_NAME, CT.CAT_NAME, I.ISBN, BS.BOOK_STATUS_NAME ;
+    
+SELECT *
+FROM VIEW_BOOK_INFO;
+    
+SELECT *
+FROM PUBLISHERS;
+
+SELECT I.PUB_ID, P.PUB_NAME
+FROM PUBLISHERS P JOIN BOOK_INFO I
+    ON P.PUB_ID = I.PUB_ID
+JOIN BOOK_
+;
+    
+
+    
+
+-- 회원 전체 대출 정보(이전 반납건까지)
+
+-- 현재 대출한 책(사용자 로그인 시 그 회원 건에 대해서)
+
+-- 전체 대출된 책 목록
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
