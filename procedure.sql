@@ -111,24 +111,22 @@ IS
     USER_DEFINE_ERROR6  EXCEPTION;
     USER_DEFINE_ERROR7  EXCEPTION;
 BEGIN
-    -- 유저아이디 검사 - 대출 자격 검사(존재, 유저상태(계정상태, 연체여부), 대출권수)
-       SELECT COUNT(*) INTO V_USER_ID_EXIST
-       FROM USERS
-       WHERE USER_ID = P_USER_ID;
-    
-       IF(V_USER_ID_EXIST<1) THEN
-            RAISE USER_DEFINE_ERROR1;
-       END IF;
-       
-       SELECT STATUS_ID INTO V_STATUSID
-       FROM USERS
-       WHERE USER_ID = P_USER_ID;
-       
+    -- 유저아이디 검사 
+    -- 대출 자격 검사(유저상태(계정상태, 연체여부), 대출권수)
+        BEGIN
+            SELECT STATUS_ID, PENALTY_EDATE INTO V_STATUSID, V_PENALTY_EDATE
+            FROM USERS
+            WHERE USER_ID = P_USER_ID;
+            
+        EXCEPTION 
+            WHEN NO_DATA_FOUND THEN
+                RAISE USER_DEFINE_ERROR1;
+        END;
+    -- 유저 존재, 상태값에 따른 분기
        IF(V_STATUSID = 2) THEN
             RAISE USER_DEFINE_ERROR2;
        END IF;
-            
-       
+                   
        IF(V_STATUSID = 3) THEN
             RAISE USER_DEFINE_ERROR3;
        END IF;
@@ -153,21 +151,23 @@ BEGIN
             RAISE USER_DEFINE_ERROR4;
        END IF;
 
-    -- 북아이디 유효성검사(존재, 상태)
-        SELECT COUNT(*) INTO V_BOOK_ID_EXIST
-        FROM BOOK_COPY
-        WHERE BOOK_ID = P_BOOK_ID;
+        -- 북아이디 유효성검사(존재, 상태)
+        BEGIN
+            SELECT BOOK_STATUS_ID INTO V_BOOK_STATUS
+            FROM BOOK_COPY
+            WHERE BOOK_ID = P_BOOK_ID;
+            
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                RAISE USER_DEFINE_ERROR5;
+        END;
+
         
-        IF(V_BOOK_ID_EXIST<1) THEN
-            RAISE USER_DEFINE_ERROR5;
-        END IF;
-        
-        SELECT BOOK_STATUS_ID INTO V_BOOK_STATUS
-        FROM BOOK_COPY
-        WHERE BOOK_ID = P_BOOK_ID;
-        
-        -- 2.대출중 / 3.이용불가상태
+        -- 2.대출중 날짜 조회
         IF(V_BOOK_STATUS = 2) THEN
+            SELECT DUE_DATE INTO V_DUE_DATE
+            FROM LOANS
+            WHERE BOOK_ID = P_BOOK_ID AND RETURN_DATE IS NULL;
             RAISE USER_DEFINE_ERROR6;
         END IF;
         
@@ -178,33 +178,22 @@ BEGIN
     -- INSERT(LOAN_ID-시퀀스, BOOK_ID, USER_ID, LOAN_DATE, DUE_DATE, RETURN_DATE(반납시), EXT_COUNT)
     -- 반납 예정일 연장 여부를 미리 받기 파라미터로 0이면 기본 반납예정일, 1이면 7일 더해주기
      -- 대출이 완료되면 BOOK_STATUS의 상태값이 트리거로 바뀌어야 함(LOANED)
+     
+    -- 연장 신청시 21일 늘려주고 연장 신청 안하면 기본 14일 세팅
+        IF(P_EXT_COUNT = 1) THEN
+            V_DUE_DATE := SYSDATE+21;
+        ELSIF(P_EXT_COUNT= 0) THEN
+            V_DUE_DATE := SYSDATE+14;
+        END IF;
+        
+     
         INSERT INTO LOANS(LOAN_ID, BOOK_ID, USER_ID, LOAN_DATE, DUE_DATE, EXT_COUNT)
         VALUES(SEQ_LOAN.NEXTVAL, P_BOOK_ID, P_USER_ID, SYSDATE
-        , CASE WHEN P_EXT_COUNT = 1 THEN SYSDATE+21 
-               ELSE SYSDATE+14
-          END
-        , P_EXT_COUNT);
+        , V_DUE_DATE, P_EXT_COUNT);
         
         O_RESULT := 'SUCCESS';
-        O_MSG := '대출이 완료되었습니다.';
-    
-    -- 예상 반납일 안내
-        SELECT DUE_DATE INTO V_DUE_DATE
-        FROM LOANS
-        WHERE BOOK_ID = P_BOOK_ID
-            AND RETURN_DATE IS NULL;
-    
-    -- 연체 패널티 기간 안내(V_PENALTY_EDATE에 값이 NULL일 수 있으므로 NO_DATA_FOUND처리)
-        BEGIN
-            SELECT PENALTY_EDATE INTO V_PENALTY_EDATE 
-            FROM USERS
-            WHERE USER_ID = P_USER_ID
-                AND STATUS_ID = 2;
+        O_MSG := '대출이 완료되었습니다. 반납 예정일은 '|| TO_CHAR(V_DUE_DATE, 'YYYY-MM-DD')||'입니다.';
                 
-            EXCEPTION
-             WHEN NO_DATA_FOUND THEN
-                 V_PENALTY_EDATE := NULL;
-        END;
 
 
     EXCEPTION 
@@ -333,19 +322,22 @@ BEGIN
     -- 연체 일수 계산
         V_OVERDUE_DAYS := TRUNC(SYSDATE) - TRUNC(V_DUE_DATE);
         
-    -- 연체 시 유저 STATUS 상태 변경
-        IF(V_OVERDUE_DAYS > 0) THEN
-            UPDATE USERS
-            SET STATUS_ID = 3
-            , PENALTY_EDATE = SYSDATE + V_OVERDUE_DAYS
-            WHERE USER_ID = V_USER_ID;
-        END IF;
-        
     -- 반납
         UPDATE LOANS
         SET RETURN_DATE = SYSDATE
         WHERE BOOK_ID = P_BOOK_ID
             AND RETURN_DATE IS NULL;
+            
+        
+    -- 연체 시 유저 STATUS 상태 변경
+        IF(V_OVERDUE_DAYS > 0) THEN
+            UPDATE USERS
+            SET STATUS_ID = 3
+            , PENALTY_EDATE = TRUNC(SYSDATE) + V_OVERDUE_DAYS
+            WHERE USER_ID = V_USER_ID;
+        END IF;
+        
+    
         
         O_RESULT := 'SUCCESS';
         
@@ -396,7 +388,8 @@ BEGIN
     -- 연체된 아이디 찾아서 유저상태를 연체로 업데이트
     UPDATE USERS
     SET STATUS_ID = 3
-    WHERE USER_ID IN (
+    WHERE STATUS_ID = 1 
+    AND USER_ID IN (
     SELECT DISTINCT USER_ID
     FROM LOANS
     WHERE RETURN_DATE IS NULL
@@ -407,7 +400,7 @@ BEGIN
     UPDATE USERS
     SET STATUS_ID = 1, PENALTY_EDATE = NULL
     WHERE STATUS_ID = 3
-        AND PENALTY_EDATE < TRUNC(SYSDATE)
+        AND( PENALTY_EDATE IS NOT NULL AND PENALTY_EDATE < TRUNC(SYSDATE))
         AND USER_ID NOT IN (
             SELECT DISTINCT USER_ID
             FROM LOANS
@@ -499,6 +492,64 @@ BEGIN
     PRC_LOANS_C(1, 2, 0, V_RESULT, V_MSG);
 END;
 
+
+-- ○ 통합 샘플 데이터 생성 프로시저
+CREATE OR REPLACE PROCEDURE PRC_BOOK_TOTAL_REG
+(
+  P_ISBN        IN BOOK_INFO.ISBN%TYPE,
+  P_TITLE       IN BOOK_INFO.TITLE%TYPE,
+  P_PUB_NAME    IN PUBLISHERS.PUB_NAME%TYPE,
+  P_AUTHOR_NAME IN AUTHORS.AUTHOR_NAME%TYPE,
+  P_CAT_ID      IN BOOK_INFO.CAT_ID%TYPE,
+  O_RESULT      OUT VARCHAR2
+)
+IS
+  V_PUB_ID    NUMBER;
+  V_AUTHOR_ID NUMBER;
+  V_COUNT     NUMBER;
+BEGIN
+  -- 1. 출판사 및 작가 등록 (기존과 동일)
+  BEGIN
+    SELECT PUB_ID INTO V_PUB_ID FROM PUBLISHERS WHERE PUB_NAME = P_PUB_NAME;
+  EXCEPTION WHEN NO_DATA_FOUND THEN
+    INSERT INTO PUBLISHERS (PUB_ID, PUB_NAME) VALUES (SEQ_PUBLISHER.NEXTVAL, P_PUB_NAME) RETURNING PUB_ID INTO V_PUB_ID;
+  END;
+
+  BEGIN
+    SELECT AUTHOR_ID INTO V_AUTHOR_ID FROM AUTHORS WHERE AUTHOR_NAME = P_AUTHOR_NAME;
+  EXCEPTION WHEN NO_DATA_FOUND THEN
+    INSERT INTO AUTHORS (AUTHOR_ID, AUTHOR_NAME) VALUES (SEQ_AUTHOR.NEXTVAL, P_AUTHOR_NAME) RETURNING AUTHOR_ID INTO V_AUTHOR_ID;
+  END;
+
+  -- 2. 도서 기본 정보 등록
+  SELECT COUNT(*) INTO V_COUNT FROM BOOK_INFO WHERE ISBN = P_ISBN;
+  IF V_COUNT = 0 THEN
+    INSERT INTO BOOK_INFO (ISBN, TITLE, PUB_ID, CAT_ID) VALUES (P_ISBN, P_TITLE, V_PUB_ID, P_CAT_ID);
+  END IF;
+
+  -- 3. 저자 매핑 (CONTRIBUTOR) 로직
+  SELECT COUNT(*) INTO V_COUNT FROM CONTRIBUTOR WHERE ISBN = P_ISBN;
+
+  IF V_COUNT = 0 THEN
+    -- [첫 번째 저자] 일단 NULL로 입력
+    INSERT INTO CONTRIBUTOR (CONTRIBUTOR_ID, ISBN, AUTHOR_ID, AUTHOR_ORDER)
+    VALUES (SEQ_CONTRIBUTOR.NEXTVAL, P_ISBN, V_AUTHOR_ID, NULL);
+  ELSE
+    -- [두 번째 이상 저자] 
+    -- 1) 기존에 NULL이었던 첫 번째 저자를 1로 업데이트 (처음 한 번만 실행됨)
+    UPDATE CONTRIBUTOR SET AUTHOR_ORDER = 1 WHERE ISBN = P_ISBN AND AUTHOR_ORDER IS NULL;
+    
+    -- 2) 현재 저자를 순서에 맞게 입력 (현재 수 + 1)
+    INSERT INTO CONTRIBUTOR (CONTRIBUTOR_ID, ISBN, AUTHOR_ID, AUTHOR_ORDER)
+    VALUES (SEQ_CONTRIBUTOR.NEXTVAL, P_ISBN, V_AUTHOR_ID, V_COUNT + 1);
+  END IF;
+
+  O_RESULT := 'SUCCESS';
+EXCEPTION
+  WHEN OTHERS THEN
+    O_RESULT := 'ERROR: ' || SQLERRM;
+END;
+/
 
 
 
