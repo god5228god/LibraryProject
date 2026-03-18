@@ -332,7 +332,7 @@ BEGIN
     -- 연체 시 유저 STATUS 상태 변경
         IF(V_OVERDUE_DAYS > 0) THEN
             UPDATE USERS
-            SET STATUS_ID = 3
+            SET STATUS_ID = 2
             , PENALTY_EDATE = TRUNC(SYSDATE) + V_OVERDUE_DAYS
             WHERE USER_ID = V_USER_ID;
         END IF;
