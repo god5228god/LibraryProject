@@ -1,10 +1,7 @@
 <%@ page contentType="text/html;charset=UTF-8" language="java" %>
 <%@ page import="java.sql.Connection" %>
 <%@ page import="com.util.DBConn" %>
-<%
-UserDAO
 
-%>
 <html>
 <body>
     <h2>도서관 프로젝트 DB 접속 테스트</h2>
